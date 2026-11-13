@@ -5,7 +5,7 @@
 
 set -u
 
-VERSION="2.1"
+VERSION="2.2"
 TIMEOUT=1
 JOBS=50
 PORTS="21,22,23,25,53,80,110,143,443,445,3306,3389,5432,8080"
@@ -241,6 +241,26 @@ identify_service() {
     esac
 }
 
+# when a service sends no banner, fall back to a port-based guess (clearly marked)
+guess_service() {
+    case $1 in
+        21)   SVC_NAME=ftp;          SVC_VER="FTP server (guessed from port)" ;;
+        22)   SVC_NAME=ssh;          SVC_VER="SSH server (guessed from port)" ;;
+        23)   SVC_NAME=telnet;       SVC_VER="Telnet (guessed from port)" ;;
+        25)   SVC_NAME=smtp;         SVC_VER="SMTP mail server (guessed from port)" ;;
+        53)   SVC_NAME=domain;       SVC_VER="DNS (guessed from port)" ;;
+        111)  SVC_NAME=rpcbind;      SVC_VER="RPC portmapper (guessed from port)" ;;
+        135)  SVC_NAME=msrpc;        SVC_VER="Microsoft Windows RPC (guessed from port)" ;;
+        139)  SVC_NAME=netbios-ssn;  SVC_VER="NetBIOS session service (guessed from port)" ;;
+        445)  SVC_NAME=microsoft-ds; SVC_VER="SMB file sharing, Windows/Samba (guessed from port)" ;;
+        2049) SVC_NAME=nfs;          SVC_VER="NFS (guessed from port)" ;;
+        3306) SVC_NAME=mysql;        SVC_VER="MySQL/MariaDB (guessed from port)" ;;
+        3389) SVC_NAME=ms-wbt-server; SVC_VER="Remote Desktop / RDP (guessed from port)" ;;
+        5432) SVC_NAME=postgresql;   SVC_VER="PostgreSQL (guessed from port)" ;;
+        5900) SVC_NAME=vnc;          SVC_VER="VNC remote desktop (guessed from port)" ;;
+    esac
+}
+
 # detect_version <ip> <port>  -> sets SVC_NAME / SVC_VER
 detect_version() {
     local ip=$1 port=$2 b="" probe
@@ -262,6 +282,7 @@ detect_version() {
             [[ -n $b ]] || b=$(grab_banner "$ip" "$port" "$probe") ;;
     esac
     identify_service "$port" "$b"
+    [[ -n $SVC_VER ]] || guess_service "$port"
 }
 
 # Scan one host. Result file lines: "<port> <service>". File exists = host up.
@@ -275,7 +296,7 @@ scan_host() {
                 if (( VERSION_SCAN )); then
                     detect_version "$ip" "$p"
                     [[ -n $SVC_NAME ]] && svc=$SVC_NAME
-                    [[ -n $SVC_VER ]] && ver=${SVC_VER//|/ }
+                    if [[ -n $SVC_VER ]]; then ver=${SVC_VER//|/ }; else ver="no banner / unidentified"; fi
                 fi
                 echo "$p|$svc|$ver" >>"$RES/$ip"
             fi
@@ -324,6 +345,11 @@ report() {
     printf '  %sOpen ports  :%s %s%d%s\n' "$GR" "$X" "$B$G" "$open_total" "$X"
     printf '  %sRisky ports :%s %s%d%s  %s(telnet/ftp/smb/rdp/vnc)%s\n' "$GR" "$X" "$B$R" "$risky" "$X" "$GR" "$X"
     printf '  %sElapsed     :%s %ds\n' "$GR" "$X" "$(( SECONDS - START ))"
+    if (( VERSION_SCAN )); then
+        printf '  %sMode        :%s service/version detection ON (-sV)\n' "$GR" "$X"
+    else
+        printf '  %sTip         :%s add -sV to detect service versions\n' "$GR" "$X"
+    fi
     printf '%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n' "$G" "$X"
 }
 
